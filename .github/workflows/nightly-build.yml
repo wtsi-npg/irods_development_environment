@@ -23,13 +23,13 @@ jobs:
             repository: irods/irods
             submodules: true
             path: ./src/irods
-    
+
       - name: "Checkout icommands source"
         uses: actions/checkout@v4
         with:
             repository: irods/irods_client_icommands
             path: ./src/icommands
-    
+
       - name: "Make output mount points"
         run: |
           mkdir -p ./output/irods
@@ -40,7 +40,7 @@ jobs:
         env:
             DOCKER_BUILDKIT: 1
         run: >
-          cd ./builder 
+          cd ./builder
 
           docker build --load
           --tag irods-core-builder-${{ env.HOST_OS }}
@@ -54,7 +54,7 @@ jobs:
 
       - name: "Build packages"
         run: >
-          docker run --rm 
+          docker run --rm
           -v ${GITHUB_WORKSPACE}/src/irods:/irods_source:ro
           -v ${GITHUB_WORKSPACE}/output/irods:/irods_build
           -v ${GITHUB_WORKSPACE}/output/ccache:/irods_build_cache
@@ -67,6 +67,7 @@ jobs:
           --exclude-unit-tests
           --exclude-microservice-tests
           --ccache
+          --debug
           -j $(nproc)
 
       - name: "Setup nightly release tag and notes"
