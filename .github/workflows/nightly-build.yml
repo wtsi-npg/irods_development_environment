@@ -1,0 +1,90 @@
+name: "Nightly build"
+on:
+  schedule:
+    - cron: "15 3 * * *" # 3:15 AM UTC, every day
+
+env:
+  HOST_OS: "ubuntu22"
+  IRODS_BRANCH: "4-3-stable"
+  ICOMMANDS_BRANCH: "4-3-stable"
+
+jobs:
+  nightly-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            path: ./builder
+
+      - name: "Checkout iRODS source"
+        uses: actions/checkout@v4
+        with:
+            repository: irods/irods
+            submodules: true
+            path: ./src/irods
+    
+      - name: "Checkout icommands source"
+        uses: actions/checkout@v4
+        with:
+            repository: irods/irods_client_icommands
+            path: ./src/icommands
+    
+      - name: "Make output mount points"
+        run: |
+          mkdir -p ./output/irods
+          mkdir -p ./output/icommands
+          mkdir -p ./output/packages
+
+      - name: "Create builder image"
+        env:
+            DOCKER_BUILDKIT: 1
+        run: >
+          cd ./builder 
+
+          docker build --load
+          --tag irods-core-builder-${{ env.HOST_OS }}
+          --file irods_core_builder.${{ env.HOST_OS }}.Dockerfile .
+
+      - name: "Cache compiler artefacts"
+        uses: actions/cache@v3
+        with:
+          path: ${{ github.workspace }}/output/ccache
+          key: ${{ runner.os }}-ccache
+
+      - name: "Build packages"
+        run: >
+          docker run --rm 
+          -v ${GITHUB_WORKSPACE}/src/irods:/irods_source:ro
+          -v ${GITHUB_WORKSPACE}/output/irods:/irods_build
+          -v ${GITHUB_WORKSPACE}/output/ccache:/irods_build_cache
+          -v ${GITHUB_WORKSPACE}/src/icommands:/icommands_source:ro
+          -v ${GITHUB_WORKSPACE}/output/icommands:/icommands_build
+          -v ${GITHUB_WORKSPACE}/output/packages:/irods_packages
+          irods-core-builder-${{ env.HOST_OS }}
+          --irods-repo-branch ${{ env.IRODS_BRANCH }}
+          --icommands-repo-branch ${{ env.ICOMMANDS_BRANCH }}
+          --exclude-unit-tests
+          --exclude-microservice-tests
+          --ccache
+          -j $(nproc)
+
+      - name: "Setup nightly release tag and notes"
+        run: |
+          echo "# Nightly build at" $(date --utc --iso-8601=seconds) > release_body.md
+
+          # Ensure that the "nightly" tag is present
+          cd ./builder
+          git tag -f nightly
+
+      - name: "Create Release"
+        uses: ncipollo/release-action@v1.13.0
+        with:
+          tag: "nightly"
+          prerelease: true
+          bodyFile: "release_body.md"
+          artifacts: "${{ github.workspace }}/output/packages/*.deb"
+          allowUpdates: true
+          removeArtifacts: true
+          artifactErrorsFailBuild: true
+          generateReleaseNotes: false
